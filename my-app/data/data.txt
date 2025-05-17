@@ -1,0 +1,11 @@
+Artist: Random
+Album: RandOrg
+Tracklist:
+01. Subterranean Homesick Alien
+02. False Alarm
+03. Fitter Happier
+04. Void Serenade
+05. Silicon_Dreams
+06. Love To Lay
+07. Event Horizon
+08. Die For You
