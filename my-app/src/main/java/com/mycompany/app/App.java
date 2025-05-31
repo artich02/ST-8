@@ -1,5 +1,12 @@
 package com.mycompany.app;
 
+import org.openqa.selenium.*;
+import org.openqa.selenium.chrome.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.io.File;
+
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
@@ -15,119 +22,192 @@ import java.util.List;
 import java.util.Map;
 
 public class App {
+    
+    private static final long TIMEOUT_MS = 30000;
+    private static final long POLL_INTERVAL_MS = 100;
+    
     public static void main(String[] args) {
+        initializeDriver();
+    }
+    
+    private static void initializeDriver() {
+        ChromeDriverService service = ChromeDriverService.createDefaultService();
+        configureSystemProperties();
+        
+        Path tempDownloadPath = createTempDirectory();
+        Path outputDirectory = setupOutputDirectory();
+        Path inputDataFile = getInputDataPath();
+        
+        if (!validateInputFile(inputDataFile)) {
+            return;
+        }
+        
+        ChromeDriver driver = null;
+        try {
+            driver = new ChromeDriver(getBrowserOptions(tempDownloadPath));
+            processCDCaseCreation(driver, inputDataFile, tempDownloadPath, outputDirectory);
+        } catch (Exception e) {
+            handleError("Ошибка в основном процессе", e);
+        } finally {
+            if (driver != null) {
+                driver.quit();
+            }
+            cleanupTempFiles(tempDownloadPath);
+        }
+    }
+    
+    private static void configureSystemProperties() {
         System.setProperty("webdriver.chrome.driver", "D:\\WORK ARTEM\\QA_UNN\\chromedriver-win64\\chromedriver.exe");
         System.setProperty("webdriver.chrome.whitelistedIps", "");
         System.setProperty("webdriver.chrome.silentOutput", "true");
-
-        Path downloadDir = Paths.get(System.getProperty("java.io.tmpdir"), "selenium_download_" + System.currentTimeMillis());
-        Path resultDir = Paths.get(System.getProperty("user.dir"), "result");
-        Path dataPath = Paths.get(System.getProperty("user.dir"), "data", "data.txt");
-
+    }
+    
+    private static Path createTempDirectory() {
         try {
-            if (!Files.exists(resultDir)) {
-                Files.createDirectories(resultDir);
-            }
-            Files.createDirectories(downloadDir);
-
-            if (!Files.exists(dataPath)) {
-                System.err.println("Ошибка: Файл данных не найден: " + dataPath);
+            return Files.createTempDirectory("selenium_downloads_");
+        } catch (Exception e) {
+            handleError("Не удалось создать временную директорию", e);
+            return null;
+        }
+    }
+    
+    private static Path setupOutputDirectory() {
+        Path dir = Paths.get("result");
+        try {
+            return Files.createDirectories(dir);
+        } catch (Exception e) {
+            handleError("Не удалось создать выходную директорию", e);
+            return null;
+        }
+    }
+    
+    private static Path getInputDataPath() {
+        return Paths.get("data", "data.txt");
+    }
+    
+    private static boolean validateInputFile(Path file) {
+        if (file == null || !Files.exists(file)) {
+            System.err.println("Файл с данными отсутствует: " + file);
+            return false;
+        }
+        return true;
+    }
+    
+    private static ChromeOptions getBrowserOptions(Path downloadPath) {
+        ChromeOptions options = new ChromeOptions();
+        Map<String, Object> preferences = new HashMap<>();
+        
+        preferences.put("download.default_directory", downloadPath.toString());
+        preferences.put("download.prompt_for_download", Boolean.FALSE);
+        preferences.put("plugins.always_open_pdf_externally", Boolean.TRUE);
+        
+        options.setExperimentalOption("prefs", preferences);
+        return options;
+    }
+    
+    private static void processCDCaseCreation(WebDriver driver, Path dataFile, 
+                                            Path downloadDir, Path outputDir) {
+        try {
+            List<String> trackData = Files.readAllLines(dataFile);
+            if (trackData.size() < 4) {
+                System.err.println("Недостаточно данных в файле");
                 return;
             }
-
-            Map<String, Object> prefs = new HashMap<>();
-            prefs.put("download.default_directory", downloadDir.toString());
-            prefs.put("download.prompt_for_download", false);
-            prefs.put("plugins.always_open_pdf_externally", true);
-
-            ChromeOptions options = new ChromeOptions();
-            options.setExperimentalOption("prefs", prefs);
-
-            WebDriver driver = new ChromeDriver(options);
-            try {
-                driver.get("https://www.papercdcase.com/index.php");
-
-                List<String> data = Files.readAllLines(dataPath);
-                if (data.size() < 4) {
-                    System.err.println("Ошибка: Файл данных должен содержать как минимум 4 строки (исполнитель, альбом, пустая строка и хотя бы один трек)");
-                    return;
-                }
-
-                driver.findElement(
-                        By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[1]/td[2]/input")
-                ).sendKeys(data.get(0));
-
-                driver.findElement(
-                        By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[2]/td[2]/input")
-                ).sendKeys(data.get(1));
-
-                for (int i = 0; i < data.size() - 3; i++) {
-                    String xpath = String.format("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[3]/td[2]/table/tbody/tr/td[%d]/table/tbody/tr[%d]/td[2]/input",
-                            i / 8 + 1, i % 8 + 1);
-                    driver.findElement(By.xpath(xpath)).sendKeys(data.get(i + 3));
-                }
-
-                WebElement radio = driver.findElement(
-                        By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[4]/td[2]/input[2]"));
-                if (!radio.isSelected()) {
-                    radio.click();
-                }
-
-                radio = driver.findElement(
-                        By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[5]/td[2]/input[2]"));
-                if (!radio.isSelected()) {
-                    radio.click();
-                }
-
-                driver.findElement(
-                        By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/p/input")
-                ).click();
-
-                boolean pdfFound = false;
-                long startTime = System.currentTimeMillis();
-                long timeout = 30000;
-
-                Path[] pdfFiles = null;
-                while (!pdfFound && System.currentTimeMillis() - startTime < timeout) {
-                    try {
-                        pdfFiles = Files.list(downloadDir)
-                                .filter(file -> file.toString().endsWith(".pdf"))
-                                .toArray(Path[]::new);
-
-                        if (pdfFiles.length > 0) {
-                            pdfFound = true;
-                        } else {
-                            Thread.sleep(100);
-                        }
-                    } catch (Exception e) {
-                        Thread.sleep(100);
-                    }
-                }
-
-                if (!pdfFound) {
-                    System.err.println("Ошибка: PDF файл не был создан в течение отведенного времени");
-                    return;
-                }
-
-                Path resultFile = resultDir.resolve("cd.pdf");
-                Files.copy(pdfFiles[0], resultFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            } catch (Exception e) {
-                System.err.println("Ошибка при выполнении: " + e.getMessage());
-                e.printStackTrace();
-            } finally {
-                driver.quit();
-                try {
-                    Files.walk(downloadDir)
-                            .sorted(java.util.Comparator.reverseOrder())
-                            .map(Path::toFile)
-                            .forEach(java.io.File::delete);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+            
+            driver.get("https://www.papercdcase.com/index.php");
+            
+            fillFormFields(driver, trackData);
+            submitForm(driver);
+            
+            Path pdfFile = waitForFileDownload(downloadDir);
+            if (pdfFile != null) {
+                saveResultFile(pdfFile, outputDir);
             }
         } catch (Exception e) {
-            System.err.println("Ошибка при инициализации: " + e.getMessage());
-            e.printStackTrace();
+            handleError("Ошибка при создании CD-обложки", e);
         }
+    }
+    
+    private static void fillFormFields(WebDriver driver, List<String> data) {
+        WebElement artistField = driver.findElement(
+            By.xpath("//form//tr[1]//input"));
+        artistField.sendKeys(data.get(0));
+        
+        WebElement albumField = driver.findElement(
+            By.xpath("//form//tr[2]//input"));
+        albumField.sendKeys(data.get(1));
+        
+        for (int i = 0; i < data.size() - 3; i++) {
+            int column = i / 8 + 1;
+            int row = i % 8 + 1;
+            String xpath = String.format(
+                "//form//tr[3]//td[%d]//tr[%d]//input", column, row);
+            driver.findElement(By.xpath(xpath)).sendKeys(data.get(i + 3));
+        }
+        
+        setRadioOption(driver, 4, 2);
+        setRadioOption(driver, 5, 2);
+    }
+    
+    private static void setRadioOption(WebDriver driver, int row, int option) {
+        WebElement radio = driver.findElement(
+            By.xpath(String.format("//form//tr[%d]//input[%d]", row, option)));
+        if (!radio.isSelected()) {
+            radio.click();
+        }
+    }
+    
+    private static void submitForm(WebDriver driver) {
+        driver.findElement(By.xpath("//form//p//input")).click();
+    }
+    
+    private static Path waitForFileDownload(Path dir) {
+        long endTime = System.currentTimeMillis() + TIMEOUT_MS;
+        
+        while (System.currentTimeMillis() < endTime) {
+            try {
+                Optional<Path> pdfFile = Files.list(dir)
+                    .filter(p -> p.toString().endsWith(".pdf"))
+                    .findFirst();
+                
+                if (pdfFile.isPresent()) {
+                    return pdfFile.get();
+                }
+                
+                TimeUnit.MILLISECONDS.sleep(POLL_INTERVAL_MS);
+            } catch (Exception e) {
+                handleError("Ошибка при проверке файлов", e);
+            }
+        }
+        
+        System.err.println("PDF не был загружен за отведённое время");
+        return null;
+    }
+    
+    private static void saveResultFile(Path source, Path targetDir) {
+        try {
+            Path destination = targetDir.resolve("cd.pdf");
+            Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            handleError("Ошибка при сохранении результата", e);
+        }
+    }
+    
+    private static void cleanupTempFiles(Path dir) {
+        try {
+            if (dir != null && Files.exists(dir)) {
+                Files.walk(dir)
+                    .sorted(Comparator.reverseOrder())
+                    .map(Path::toFile)
+                    .forEach(File::delete);
+            }
+        } catch (Exception e) {
+            handleError("Ошибка при очистке временных файлов", e);
+        }
+    }
+    
+    private static void handleError(String message, Exception e) {
+        System.err.println(message + ": " + e.getMessage());
+        e.printStackTrace();
     }
 }

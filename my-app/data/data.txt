@@ -1,11 +1,12 @@
-Artist: Random
-Album: RandOrg
+Artist: Artem
+Album: Artem-New
 Tracklist:
-01. Subterranean Homesick Alien
-02. False Alarm
-03. Fitter Happier
-04. Void Serenade
-05. Silicon_Dreams
-06. Love To Lay
-07. Event Horizon
-08. Die For You
+Subterranean Homesick Alien
+False Alarm
+Fitter Happier
+Silicon_Dreams
+Event Horizon
+Die For You
+Ethereal
+Fantastic Freedom
+
